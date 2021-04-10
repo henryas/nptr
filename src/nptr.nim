@@ -50,7 +50,6 @@ proc `=destroy`[T](p: var UniquePtr[T]) =
     p.item = old
   dealloc(p.item)
   p.item = nil
-  echo "destroyed"
   p.destroy = nil
 
 proc `=copy`[T](dest: var UniquePtr[T], src: UniquePtr[T]) =
@@ -110,7 +109,6 @@ proc `=destroy`[T](p: var SharedPtr[T]) =
     p.readers = nil
     p.writerQueue = nil
     p.destroy = nil
-    echo "destroyed"
 
 proc `=copy`[T](dest: var SharedPtr[T], src: SharedPtr[T]) =
   if dest.count == src.count:
