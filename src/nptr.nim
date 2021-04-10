@@ -64,9 +64,11 @@ proc write*[T](p: UniquePtr[T], fn: proc(i: var T)) {.gcsafe.} =
   fn(p.item[])
 
 proc move*[T](src: var UniquePtr[T]): UniquePtr[T] =
-  result = initUniquePtr[T]()
+  if src.item == nil:
+    return
   result.item = src.item
   result.destroy = src.destroy
+  dealloc(src.item)
   src.item = nil
   src.destroy = nil
 
@@ -192,4 +194,3 @@ proc promote*[T](p: var WeakPtr[T]): Option[SharedPtr[T]] =
     temp.destroy = p.destroy
   temp.lock = p.lock
   return some(temp)
-
