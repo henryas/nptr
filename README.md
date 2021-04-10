@@ -15,7 +15,6 @@ _unique_ptr_, _shared_ptr_, and _weak_ptr_. Their functions and usage are
 explained below.
 
 ## UniquePtr
-============
 UniquePtr implies a sole ownership of the object. The pointer can be moved
 around, but not copied. The pointer is the only one that accesses the object at
 any given time. When the pointer is no longer used, it calls the custom
@@ -40,7 +39,6 @@ sync()
 ```
 
 ## SharedPtr
-============
 SharedPtr implies multiple ownership of the object. The pointer can be copied
 and moved around. When the last pointer goes out of scope, the object is
 destroyed. If there is any custom destructor, the destructor will be called.
@@ -64,7 +62,6 @@ pt.read(proc(i: int) = doAssert i==5)
 ```
 
 ## WeakPtr
-==========
 WeakPtr allows a peek into the object held by SharedPtr. WeakPtr does not claim
 ownership of the object and the object may be deleted by SharedPtr at any time
 while WeakPtr is still around. In order to access the object, WeakPtr must be
@@ -83,7 +80,6 @@ if promotion.isNone: # check for error
 promotion.get().read(proc(i: int) = doAssert i == 8)
 ```
 ## Destructor
-=============
 Custom destructor may be specified during the construction of UniquePtr and
 SharedPtr.
 
