@@ -3,8 +3,10 @@
 import
   locks,
   asyncdispatch,
-  options,
-  macros
+  options
+
+when isMainModule:
+  import threadpool # for testing
 
 export
   options
@@ -16,19 +18,23 @@ type
     destroy: proc(t: ptr T)
   SharedPtr*[T] = object
     ## SharedPtr manages the lifetime of an object. It allows multiple ownership of the object. It can be copied and passed across threads. It acts as a read-write mutex to the underlying data and therefore carries a higher cost than UniquePtr.
-    item: ptr T
-    count: ptr int
-    lock: ptr Lock
-    readers: ptr int
-    writerQueue: ptr int
+    content: ptr tuple[
+      item: T,
+      count: int,
+      lock: Lock,
+      readers: int,
+      writerQueue: int,
+    ]
     destroy: proc(t: ptr T)
   WeakPtr*[T] = object
     ## WeakPtr is a non-owning reference to the object pointed to by SharedPtr. WeakPtr can be passed across threads. It is obtained from SharedPtr, and must be converted back into SharedPtr in order to access the object it points to.
-    item: ptr T
-    count: ptr int
-    lock: ptr Lock
-    readers: ptr int
-    writerQueue: ptr int
+    content: ptr tuple[
+      item: T,
+      count: int,
+      lock: Lock,
+      readers: int,
+      writerQueue: int,
+    ]
     destroy: proc(t: ptr T)
 
 proc initUniquePtr*[T](destructor: proc(t: ptr T)): UniquePtr[T] =
@@ -74,123 +80,127 @@ proc move*[T](src: var UniquePtr[T]): UniquePtr[T] =
 
 proc initSharedPtr*[T](destructor: proc(t: ptr T)): SharedPtr[T] =
   ## initialize the shared ptr. Upon clean up, the object will be destroyed using the given destructor function.
-  result.item = cast[ptr T](alloc(sizeof(T)))
-  result.count = cast[ptr int](alloc(sizeof(int)))
-  result.lock = cast[ptr Lock](alloc(sizeof(Lock)))
-  result.readers = cast[ptr int](alloc(sizeof(int)))
-  result.writerQueue = cast[ptr int](alloc(sizeof(int)))
-  result.item[] = default(T)
-  result.count[] = 1
+  result.content = cast[typeof(result.content)](alloc(sizeof(result.content)))
+  result.content[].item = default(T)
+  result.content[].count = 1
   result.destroy = destructor
-  initLock(result.lock[])
+  initLock(result.content[].lock)
 
 proc initSharedPtr*[T](): SharedPtr[T] =
   ## initialize the shared ptr.
   initSharedPtr[T](proc(t: ptr T) = discard)
 
 proc `=destroy`[T](p: var SharedPtr[T]) =
-  if p.count == nil:
+  if p.content == nil:
     return
   var lastCopy: bool
-  withLock p.lock[]:
-    p.count[] -= 1
-    lastCopy = p.count[] == 0
+  withLock p.content[].lock:
+    p.content[].count -= 1
+    lastCopy = p.content[].count == 0
   if lastCopy:
-    var old = p.item
-    p.destroy(p.item)
-    if p.item == nil:
-      p.item = old
-    dealloc(p.item)
-    dealloc(p.count)
-    dealloc(p.lock)
-    dealloc(p.readers)
-    dealloc(p.writerQueue)
-    p.item = nil
-    p.count = nil
-    p.lock = nil
-    p.readers = nil
-    p.writerQueue = nil
+    p.destroy(addr p.content[].item)
+    dealloc(p.content)
+    p.content = nil
     p.destroy = nil
 
 proc `=copy`[T](dest: var SharedPtr[T], src: SharedPtr[T]) =
-  if dest.count == src.count:
+  if dest.content == src.content:
     return
   `=destroy`(dest)
   wasMoved(dest)
-  if src.count == nil:
+  if src.content == nil:
     return
-  withLock src.lock[]:
-    src.count[] += 1
-    dest.item = src.item
-    dest.count = src.count
-    dest.destroy = src.destroy
-    dest.readers = src.readers
-    dest.writerQueue = src.writerQueue
-  dest.lock = src.lock
+  withLock src.content[].lock:
+    src.content[].count += 1
+    dest.content = src.content
 
 proc write*[T](p: SharedPtr[T], writer: proc(i: var T)) {.gcsafe.} =
   ## get write access to the underlying object
   var done: bool
   var first = true
   while not done:
-    withLock p.lock[]:
-      if p.readers[] == 0:
-        writer(p.item[])
+    withLock p.content[].lock:
+      if p.content[].readers == 0:
+        writer(p.content[].item)
         if not first:
-          p.writerQueue[] -= 1
+          p.content[].writerQueue -= 1
         done = true
       else:
         if first:
-          p.writerQueue[] += 1
+          p.content[].writerQueue += 1
           first = false
     if not done:
-      poll()
+      poll(250)
 
 proc read*[T](p: SharedPtr[T], reader: proc(i: T)) {.gcsafe.} =
   ## get read access to the underlying object.
   var done: bool
   var canRead: bool
   while not done:
-    withLock p.lock[]:
-      if p.writerQueue[] == 0:
-        p.readers[] += 1
+    withLock p.content[].lock:
+      if p.content[].writerQueue == 0:
+        p.content[].readers += 1
         canRead = true
     if canRead:
-      reader(p.item[])
-      withLock p.lock[]:
-        p.readers[] -= 1
+      reader(p.content[].item)
+      withLock p.content[].lock:
+        p.content[].readers -= 1
       done = true
     if not done:
-      poll()
+      poll(250)
 
 proc weak*[T](p: SharedPtr[T]): WeakPtr[T] =
   ## get the weak ptr
-  result.item = p.item
-  result.lock = p.lock
-  result.count = p.count
-  result.readers = p.readers
-  result.writerQueue = p.writerQueue
+  result.content = p.content
   result.destroy = p.destroy
 
 proc `=destroy`[T](p: var WeakPtr[T]) =
-  p.item = nil
-  p.lock = nil
-  p.count = nil
-  p.readers = nil
-  p.writerQueue = nil
+  p.content = nil
   p.destroy = nil
 
 proc promote*[T](p: var WeakPtr[T]): Option[SharedPtr[T]] =
   ## attempt to promote the weak ptr into shared ptr.
-  if p.lock == nil or p.count[] == 0:
+  if p.content == nil:
     return none[SharedPtr[T]]()
   var temp: SharedPtr[T]
-  withLock p.lock[]:
-    p.count[] += 1
-    temp.item = p.item
-    temp.count = p.count
-    temp.readers = p.readers
-    temp.writerQueue = p.writerQueue
+  withLock p.content[].lock:
+    p.content[].count += 1
+    temp.content = p.content
     temp.destroy = p.destroy
-  temp.lock = p.lock
   return some(temp)
+
+when isMainModule:
+  block uniquePtr:
+    var pt = initUniquePtr[string]()
+    pt.write(proc(s: var string) = s="Hello") # assignment
+
+    proc work(cp: UniquePtr[string]) =
+      cp.write(proc(s: var string) =
+        s.add(" World")
+        doAssert s == "Hello World"
+      )
+    spawn work(move pt) # explicit move is required when passing across threads
+    # pt points to nil now
+    sync()
+
+  block sharedPtr:
+    var pt = initSharedPtr[int]()
+    proc work(cp: SharedPtr[int]) =
+      cp.write(proc(i: var int) =
+        i+=1
+      )
+    for _ in 0..4:
+      spawn(work(pt))
+    sync()
+
+    pt.read(proc(i: int) = doAssert i==5)
+
+  block weakPtr:
+    var p1 = initSharedPtr[int]()
+    p1.write(proc(i: var int) = i=8)
+
+    var wp = p1.weak() # obtain WeakPtr
+    var promotion = wp.promote() # in order to access the value, promote WeakPtr to SharedPtr
+    if promotion.isNone: # check for error
+      echo "promotion fails"
+    promotion.get().read(proc(i: int) = doAssert i == 8)
