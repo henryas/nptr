@@ -85,7 +85,7 @@ SharedPtr.
 
 ### Example:
 ```Nim
-var p = initSharedPtr[int](proc(i: ptr int) =
+var p = initSharedPtr[int](proc(i: var int) =
   # custom destructor here
 )
 ```
