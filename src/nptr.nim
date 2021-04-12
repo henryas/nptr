@@ -64,9 +64,13 @@ proc `=copy`[T](dest: var UniquePtr[T], src: UniquePtr[T]) =
   raise newException(ObjectAssignmentDefect, "unique ptr must not be copied")
 
 proc read*[T](p: UniquePtr[T], fn: proc(i: T)) {.gcsafe.} =
+  if p.item == nil:
+    raise newException(AccessViolationDefect, "unique ptr is no longer available")
   fn(p.item[])
 
 proc write*[T](p: UniquePtr[T], fn: proc(i: var T)) {.gcsafe.} =
+  if p.item == nil:
+    raise newException(AccessViolationDefect, "unique ptr is no longer available")
   fn(p.item[])
 
 proc move*[T](src: var UniquePtr[T]): UniquePtr[T] =
@@ -180,7 +184,6 @@ when isMainModule:
         doAssert s == "Hello World"
       )
     spawn work(move pt) # explicit move is required when passing across threads
-    # pt points to nil now
     sync()
 
   block uniquePtrTest2:
@@ -193,8 +196,20 @@ when isMainModule:
         doAssert s == 10
       )
     spawn work(move pt) # explicit move is required when passing across threads
-    # pt points to nil now
     sync()
+
+  block uniquePtrAccessViolationTest:
+    var pt = initUniquePtr[int]()
+    proc work(p: UniquePtr[int]) = discard
+
+    var isExceptionThrown: bool
+    work(move pt)
+    try:
+      pt.read(proc(i: int) = discard)
+    except:
+      isExceptionThrown = true
+
+    doAssert isExceptionThrown == true
 
   block sharedPtr1:
     var pt = initSharedPtr[int]()

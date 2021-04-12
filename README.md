@@ -34,7 +34,7 @@ proc work(cp: UniquePtr[string]) =
     doAssert s == "Hello World"
   )
 spawn work(move pt) # explicit move is required when passing across threads
-# pt points to nil now
+# pt has been moved. any attempt to access pt will raise AccessViolationDefect exception.
 sync()
 ```
 
