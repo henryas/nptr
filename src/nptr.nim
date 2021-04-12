@@ -15,29 +15,29 @@ type
   UniquePtr*[T] = object
     ## UniquePtr manages the lifetime of an object. It retains a single ownership of the object and cannot be copied. It can be passed across threads.
     item: ptr T
-    destroy: proc(t: ptr T)
+    destroy: proc(t: var T)
   SharedPtr*[T] = object
     ## SharedPtr manages the lifetime of an object. It allows multiple ownership of the object. It can be copied and passed across threads. It acts as a read-write mutex to the underlying data and therefore carries a higher cost than UniquePtr.
     content: ptr tuple[
       item: T,
-      count: int,
+      count: uint8,
       lock: Lock,
-      readers: int,
-      writerQueue: int,
+      readers: uint8,
+      writerQueue: uint8,
     ]
-    destroy: proc(t: ptr T)
+    destroy: proc(t: var T)
   WeakPtr*[T] = object
     ## WeakPtr is a non-owning reference to the object pointed to by SharedPtr. WeakPtr can be passed across threads. It is obtained from SharedPtr, and must be converted back into SharedPtr in order to access the object it points to.
     content: ptr tuple[
       item: T,
-      count: int,
+      count: uint8,
       lock: Lock,
-      readers: int,
-      writerQueue: int,
+      readers: uint8,
+      writerQueue: uint8,
     ]
-    destroy: proc(t: ptr T)
+    destroy: proc(t: var T)
 
-proc initUniquePtr*[T](destructor: proc(t: ptr T)): UniquePtr[T] =
+proc initUniquePtr*[T](destructor: proc(t: var T)): UniquePtr[T] =
   ## create a unique ptr with the given destructor.
   result.item = cast[ptr T](alloc(sizeof(T)))
   result.item[] = default(T)
@@ -45,13 +45,13 @@ proc initUniquePtr*[T](destructor: proc(t: ptr T)): UniquePtr[T] =
 
 proc initUniquePtr*[T](): UniquePtr[T] =
   ## create a unique ptr.
-  initUniquePtr(proc(t: ptr T) = discard)
+  initUniquePtr(proc(t: var T) = discard)
 
 proc `=destroy`[T](p: var UniquePtr[T]) =
   if p.item == nil:
     return
   var old = p.item
-  p.destroy(p.item)
+  p.destroy(p.item[])
   if p.item == nil:
     p.item = old
   dealloc(p.item)
@@ -78,7 +78,7 @@ proc move*[T](src: var UniquePtr[T]): UniquePtr[T] =
   src.item = nil
   src.destroy = nil
 
-proc initSharedPtr*[T](destructor: proc(t: ptr T)): SharedPtr[T] =
+proc initSharedPtr*[T](destructor: proc(t: var T)): SharedPtr[T] =
   ## initialize the shared ptr. Upon clean up, the object will be destroyed using the given destructor function.
   result.content = cast[typeof(result.content)](alloc(sizeof(result.content)))
   result.content[].item = default(T)
@@ -88,7 +88,7 @@ proc initSharedPtr*[T](destructor: proc(t: ptr T)): SharedPtr[T] =
 
 proc initSharedPtr*[T](): SharedPtr[T] =
   ## initialize the shared ptr.
-  initSharedPtr[T](proc(t: ptr T) = discard)
+  initSharedPtr[T](proc(t: var T) = discard)
 
 proc `=destroy`[T](p: var SharedPtr[T]) =
   if p.content == nil:
@@ -98,7 +98,7 @@ proc `=destroy`[T](p: var SharedPtr[T]) =
     p.content[].count -= 1
     lastCopy = p.content[].count == 0
   if lastCopy:
-    p.destroy(addr p.content[].item)
+    p.destroy(p.content[].item)
     dealloc(p.content)
     p.content = nil
     p.destroy = nil
@@ -229,3 +229,12 @@ when isMainModule:
     if promotion.isNone: # check for error
       echo "promotion fails"
     promotion.get().read(proc(i: int) = doAssert i == 8)
+
+  block destructorTest:
+    var isDestructorCalled:bool
+    block:
+      proc work(p: UniquePtr[int]) = discard
+      var p = initUniquePtr[int](proc(i: var int) = isDestructorCalled = true)
+      spawn work(move p)
+      sync()
+    doAssert isDestructorCalled
