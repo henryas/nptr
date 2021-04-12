@@ -72,9 +72,9 @@ proc write*[T](p: UniquePtr[T], fn: proc(i: var T)) {.gcsafe.} =
 proc move*[T](src: var UniquePtr[T]): UniquePtr[T] =
   if src.item == nil:
     return
-  result.item = src.item
+  result.item = cast[ptr T](alloc(sizeof(T)))
+  result.item[] = src.item[]
   result.destroy = src.destroy
-  dealloc(src.item)
   src.item = nil
   src.destroy = nil
 
@@ -170,7 +170,7 @@ proc promote*[T](p: var WeakPtr[T]): Option[SharedPtr[T]] =
   return some(temp)
 
 when isMainModule:
-  block uniquePtr:
+  block uniquePtrTest1:
     var pt = initUniquePtr[string]()
     pt.write(proc(s: var string) = s="Hello") # assignment
 
@@ -183,7 +183,20 @@ when isMainModule:
     # pt points to nil now
     sync()
 
-  block sharedPtr:
+  block uniquePtrTest2:
+    var pt = initUniquePtr[int]()
+    pt.write(proc(s: var int) = s=8) # assignment
+
+    proc work(cp: UniquePtr[int]) =
+      cp.write(proc(s: var int) =
+        s = 10
+        doAssert s == 10
+      )
+    spawn work(move pt) # explicit move is required when passing across threads
+    # pt points to nil now
+    sync()
+
+  block sharedPtr1:
     var pt = initSharedPtr[int]()
     proc work(cp: SharedPtr[int]) =
       cp.write(proc(i: var int) =
@@ -194,6 +207,18 @@ when isMainModule:
     sync()
 
     pt.read(proc(i: int) = doAssert i==5)
+
+  block sharedPtr2:
+    var pt = initSharedPtr[string]()
+    proc work(cp: SharedPtr[string]) =
+      cp.write(proc(i: var string) =
+        i.add("a")
+      )
+    for _ in 0..4:
+      spawn(work(pt))
+    sync()
+
+    pt.read(proc(i: string) = doAssert i=="aaaaa")
 
   block weakPtr:
     var p1 = initSharedPtr[int]()
