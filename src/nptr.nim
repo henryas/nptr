@@ -28,7 +28,7 @@ type
     destroy: proc(t: var T)
   WeakPtr*[T] = object
     ## WeakPtr is a non-owning reference to the object pointed to by SharedPtr. WeakPtr can be passed across threads. It is obtained from SharedPtr, and must be converted back into SharedPtr in order to access the object it points to.
-    content: ptr tuple[
+    content: ptr ptr tuple[
       item: T,
       count: uint8,
       lock: Lock,
@@ -155,7 +155,7 @@ proc read*[T](p: SharedPtr[T], reader: proc(i: T)) {.gcsafe.} =
 
 proc weak*[T](p: SharedPtr[T]): WeakPtr[T] =
   ## get the weak ptr
-  result.content = p.content
+  result.content = unsafeAddr p.content
   result.destroy = p.destroy
 
 proc `=destroy`[T](p: var WeakPtr[T]) =
@@ -164,16 +164,24 @@ proc `=destroy`[T](p: var WeakPtr[T]) =
 
 proc promote*[T](p: var WeakPtr[T]): Option[SharedPtr[T]] =
   ## attempt to promote the weak ptr into shared ptr.
-  if p.content == nil:
+  if p.content == nil or p.content == p.content[]:
     return none[SharedPtr[T]]()
   var temp: SharedPtr[T]
   withLock p.content[].lock:
     p.content[].count += 1
-    temp.content = p.content
+    temp.content = p.content[]
     temp.destroy = p.destroy
   return some(temp)
 
 when isMainModule:
+  template expectError(body: untyped): untyped =
+    var hasError: bool
+    try:
+      body
+    except:
+      hasError = true
+    doAssert hasError
+
   block uniquePtrTest1:
     var pt = initUniquePtr[string]()
     pt.write(proc(s: var string) = s="Hello") # assignment
@@ -201,15 +209,9 @@ when isMainModule:
   block uniquePtrAccessViolationTest:
     var pt = initUniquePtr[int]()
     proc work(p: UniquePtr[int]) = discard
-
-    var isExceptionThrown: bool
     work(move pt)
-    try:
+    expectError:
       pt.read(proc(i: int) = discard)
-    except:
-      isExceptionThrown = true
-
-    doAssert isExceptionThrown == true
 
   block sharedPtr1:
     var pt = initSharedPtr[int]()
@@ -242,8 +244,25 @@ when isMainModule:
     var wp = p1.weak() # obtain WeakPtr
     var promotion = wp.promote() # in order to access the value, promote WeakPtr to SharedPtr
     if promotion.isNone: # check for error
-      echo "promotion fails"
+      doAssert(false, "failed to promote")
     promotion.get().read(proc(i: int) = doAssert i == 8)
+
+  block weakPtr2:
+    # ensure that weak does not destroy sharedptr.
+    var p = initSharedPtr[int]()
+    p.write(proc(i: var int) = i=10)
+    block:
+      discard p.weak()
+    p.read(proc(i: int) = doAssert i==10)
+
+  block weakPtr3:
+    # ensure promotion fails when sharedptr is destroyed
+    var wp: WeakPtr[int]
+    block:
+      var p = initSharedPtr[int]()
+      p.write(proc(i: var int) = i=10)
+      wp = p.weak()
+    doAssert wp.promote().isNone()
 
   block destructorTest:
     var isDestructorCalled:bool
