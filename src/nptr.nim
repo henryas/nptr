@@ -50,10 +50,7 @@ proc initUniquePtr*[T](): UniquePtr[T] =
 proc `=destroy`[T](p: var UniquePtr[T]) =
   if p.item == nil:
     return
-  var old = p.item
   p.destroy(p.item[])
-  if p.item == nil:
-    p.item = old
   deallocShared(p.item)
   p.item = nil
   p.destroy = nil
@@ -118,6 +115,7 @@ proc `=copy`[T](dest: var SharedPtr[T], src: SharedPtr[T]) =
   withLock src.content[].lock:
     src.content[].count += 1
     dest.content = src.content
+    dest.destroy = src.destroy
 
 proc write*[T](p: SharedPtr[T], writer: proc(i: var T)) {.gcsafe.} =
   ## get write access to the underlying object
