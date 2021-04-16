@@ -44,7 +44,10 @@ type
 
 proc initUniquePtr*[T](destructor: proc(t: var T)): UniquePtr[T] =
   ## create a unique ptr with the given destructor.
-  result.item = cast[ptr T](allocShared(sizeof(T)))
+  when compileOption("threads"):
+    result.item = cast[ptr T](allocShared(sizeof(T)))
+  else:
+    result.item = cast[ptr T](alloc(sizeof(T)))
   result.item[] = default(T)
   result.destroy = destructor
 
@@ -56,7 +59,10 @@ proc `=destroy`[T](p: var UniquePtr[T]) =
   if p.item == nil:
     return
   p.destroy(p.item[])
-  deallocShared(p.item)
+  when compileOption("threads"):
+    deallocShared(p.item)
+  else:
+    dealloc(p.item)
   p.item = nil
   p.destroy = nil
 
@@ -119,6 +125,10 @@ proc `=destroy`[T](p: var SharedPtr[T]) =
   if lastCopy:
     p.destroy(p.content[].item)
     when compileOption("threads"):
+      deinitLock(p.content[].countLock)
+      deinitLock(p.content[].resourceLock)
+      deinitLock(p.content[].readersLock)
+      deinitLock(p.content[].serviceLock)
       deallocShared(p.content)
     else:
       dealloc(p.content)
