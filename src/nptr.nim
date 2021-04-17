@@ -92,9 +92,9 @@ proc move*[T](src: var UniquePtr[T]): UniquePtr[T] =
 proc initSharedPtr*[T](destructor: proc(t: var T)): SharedPtr[T] =
   ## initialize the shared ptr. Upon clean up, the object will be destroyed using the given destructor function.
   when compileOption("threads"):
-    result.content = cast[typeof(result.content)](allocShared(sizeof(result.content)))
+    result.content = cast[typeof(result.content)](allocShared(sizeof(SharedPtrInternal[T])))
   else:
-    result.content = cast[typeof(result.content)](alloc(sizeof(result.content)))
+    result.content = cast[typeof(result.content)](alloc(sizeof(SharedPtrInternal[T])))
   result.content[].item = default(T)
   result.content[].count = 1
   result.content[].readers = 0
