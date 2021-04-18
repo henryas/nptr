@@ -25,7 +25,6 @@ else:
   type SharedPtrInternal[T] = tuple[
     item: T,
     count: uint8,
-    readers: uint8,
   ]
 
 type
@@ -97,9 +96,9 @@ proc initSharedPtr*[T](destructor: proc(t: var T)): SharedPtr[T] =
     result.content = cast[typeof(result.content)](alloc(sizeof(SharedPtrInternal[T])))
   result.content[].item = default(T)
   result.content[].count = 1
-  result.content[].readers = 0
   result.destroy = destructor
   when compileOption("threads"):
+    result.content[].readers = 0
     initLock(result.content[].countLock)
     initLock(result.content[].resourceLock)
     initLock(result.content[].readersLock)
