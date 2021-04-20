@@ -205,6 +205,23 @@ proc promote*[T](p: var WeakPtr[T]): Option[SharedPtr[T]] =
     temp.destroy = p.destroy
   return some(temp)
 
+template autoAlloc*[T](): ptr T =
+  ## autoAlloc allocates memory for the given object.
+  when compileOption("threads"):
+    cast[ptr T](allocShared(sizeof(T)))
+  else:
+    cast[ptr T](alloc(sizeof(T)))
+
+template autoDealloc*[T](p: ptr T) =
+  ## autoDealloc deallocates memory that has been allocated with autoDealloc.
+  if p == nil:
+    return
+  when compileOption("threads"):
+    deallocShared(p)
+  else:
+    dealloc(p)
+  p = nil
+
 when isMainModule:
   template expectError(body: untyped): untyped =
     var hasError: bool
@@ -220,6 +237,40 @@ when isMainModule:
 
     var cp = pt # moved
     cp.read(proc(s: string) = doAssert s == "Hello World")
+
+  block uniquePtrClosure:
+    type closure = object
+      fn: ptr proc()
+    var isCalled: bool
+    var pt = initUniquePtr[closure](proc(c: var closure) =
+      autoDealloc(c.fn)
+    )
+    pt.write(proc(c: var closure) =
+      c.fn = autoAlloc[proc()]()
+      c.fn[] = proc() = isCalled = false
+    )
+    pt.write(proc(c: var closure) =
+      c.fn[] = proc() = isCalled = true
+    )
+    pt.read(proc(c: closure) = c.fn[]())
+    doAssert isCalled
+
+  block sharedPtrClosure:
+    type closure = object
+      fn: ptr proc()
+    var isCalled: bool
+    var pt = initSharedPtr[closure](proc(c: var closure) =
+      autoDealloc(c.fn)
+    )
+    pt.write(proc(c: var closure) =
+      c.fn = autoAlloc[proc()]()
+      c.fn[] = proc() = isCalled = false
+    )
+    pt.write(proc(c: var closure) =
+      c.fn[] = proc() = isCalled = true
+    )
+    pt.read(proc(c: closure) = c.fn[]())
+    doAssert isCalled
 
   block sharedPtr1:
     var pt = initSharedPtr[string]()

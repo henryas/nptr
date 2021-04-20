@@ -1,17 +1,17 @@
 # nptr
 
-Module nptr implements smart pointers for the Nim language. The objective is to
-allow sharing of mutable variables across threads in a more convenient manner.
-They also allow an easy management of an object's lifetime when the object has a
-custom destructor.
+Module nptr implements smart pointers for the Nim language. They allow sharing
+of mutable variables across threads in a more convenient manner, and an easy
+management of an object's lifetime when the object requires a custom destructor
+(eg. in a non-GC environment).
 
 The smart pointers have the following characteristics:
-  * The smart pointers can be safely shared across threads.
+  * The smart pointers are safe to share across threads.
   * The smart pointers support optional custom destructor.
 
 There are three types of smart pointers: _UniquePtr_, _SharedPtr_, and
 _WeakPtr_. They are unimaginatively named after the C++'s smart pointers:
-_unique_ptr_, _shared_ptr_, and _weak_ptr_. Their functions and usage are
+_unique_ptr_, _shared_ptr_, and _weak_ptr_. Their functions and use are
 explained below.
 
 ## UniquePtr
@@ -33,6 +33,7 @@ proc work(cp: UniquePtr[string]) =
     s.add(" World")
     doAssert s == "Hello World"
   )
+
 spawn work(move pt) # explicit move is required when passing across threads
 # pt has been moved. any attempt to access pt will raise AccessViolationDefect exception.
 sync()
@@ -40,33 +41,34 @@ sync()
 
 ## SharedPtr
 SharedPtr implies multiple ownership of the object. The pointer can be copied
-and moved around. When the last pointer goes out of scope, the object is
-destroyed. If there is any custom destructor, the destructor will be called.
-SharedPtr also acts as a read-write mutex. It allows multiple readers or a
-single writer at any given time.
+and moved around. When the last pointer to the object goes out of scope, the
+object is destroyed. If there is any custom destructor, the destructor will be
+called. In a concurrent environment, SharedPtr also acts as a read-write mutex.
+It allows multiple readers or a single writer at any given time.
 
 ### Example:
 ```Nim
 import threadpool
 
 var pt = initSharedPtr[int]()
-proc work(cp: SharedPtr[int]) =
+
+proc increment(cp: SharedPtr[int]) =
   cp.write(proc(i: var int) =
     i+=1
   )
+
 for _ in 0..4:
-  spawn(work(pt))
+  spawn increment(pt)
 sync()
 
 pt.read(proc(i: int) = doAssert i==5)
 ```
 
 ## WeakPtr
-WeakPtr allows a peek into the object held by SharedPtr. WeakPtr does not claim
-ownership of the object and the object may be deleted by SharedPtr at any time
-while WeakPtr is still around. In order to access the object, WeakPtr must be
-promoted to SharedPtr first. If the object has been deleted, the promotion will
-fail.
+WeakPtr maintains a weak reference to the object held by SharedPtr. WeakPtr does
+not claim ownership of the object and the object may be deleted by SharedPtr at
+any time. In order to access the object, WeakPtr must be promoted to SharedPtr.
+If the object no longer exists, the promotion will fail.
 
 ### Example:
 ```Nim
@@ -79,13 +81,50 @@ if promotion.isNone: # check for error
   echo "promotion fails"
 promotion.get().read(proc(i: int) = doAssert i == 8)
 ```
+
 ## Destructor
-Custom destructor may be specified during the construction of UniquePtr and
-SharedPtr.
+Optional custom destructor can be specified during the construction of UniquePtr
+and SharedPtr.
 
 ### Example:
 ```Nim
 var p = initSharedPtr[int](proc(i: var int) =
   # custom destructor here
 )
+```
+
+## Closure
+When the object contains a closure, explicit memory allocation and deallocation
+are required. The module provides _autoAlloc_ and _autoDealloc_ for convenience,
+but the user can use any memory allocation and deallocation functions. The
+following code will fail to compile:
+```Nim
+type MyObject = object
+  fn: proc()
+
+let pt = initUniquePtr[MyObject]()
+pt.write(proc(o: var MyObject) =
+  o.fn = proc() = echo "Hello World!" # this assignment will fail
+)
+```
+The proper way to work with closures will be as follows:
+```Nim
+type MyObject = object
+  fn: ptr proc() # fn is now a pointer to a closure
+
+# initialize pt with destructor for clean up
+let pt = initUniquePtr[MyObject](
+  proc(o: var MyObject) =
+    autoDealloc(o.fn) # clean up: deallocate the closure
+)
+pt.write(proc(o: var MyObject) =
+  o.fn = autoAlloc[proc()]() # before the first assignment, allocate memory for the closure
+  o.fn[] = proc() = echo "Hey" # closure assignment
+)
+
+pt.write(proc(o: var MyObject) =
+  o.fn[] = proc[] = echo "Hello World!" # subsequent assignments do not need memory allocation.
+)
+
+pt.read(proc(o: MyObject) = o.fn[]()) # output: "Hello World!"
 ```
