@@ -1,5 +1,5 @@
 import
-  nptr
+  ../src/nptr
 
 block weakPtr1:
   var p1 = initSharedPtr[int]()

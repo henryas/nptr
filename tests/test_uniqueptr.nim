@@ -1,4 +1,4 @@
-import nptr
+import ../src/nptr
 
 template expectError(body: untyped): untyped =
   var hasError: bool

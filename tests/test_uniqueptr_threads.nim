@@ -2,7 +2,7 @@ discard """
   matrix: "--threads:on"
 """
 import
-  nptr,
+  ../src/nptr,
   threadpool
 
 block uniquePtrTest1:

@@ -1,4 +1,4 @@
-import nptr
+import ../src/nptr
 
 block sharedPtr1:
   var pt = initSharedPtr[string]()

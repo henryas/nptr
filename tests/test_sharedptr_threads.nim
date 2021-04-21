@@ -3,7 +3,7 @@ discard """
 """
 
 import
-  nptr,
+  ../src/nptr,
   threadpool
 
 block sharedPtr1:
