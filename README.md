@@ -1,9 +1,5 @@
 # nptr
 
-## Note
-This is a development branch where we test and break things. For production, use
-the official releases from the main branch.
-
 ## Overview
 
 Module nptr implements smart pointers for the Nim language. They allow sharing
