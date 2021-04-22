@@ -56,7 +56,7 @@ proc read[T](pt: UniquePtr[T], reader: proc(t: T));
 proc write[T](pt: UniquePtr[T], writer: proc(t: var T));
 
 # explicitly move the pointer
-proc move[T](src: var Unique{T}): UniquePtr[T];
+proc move[T](src: var Unique[T]): UniquePtr[T];
 ```
 
 ## SharedPtr
@@ -99,7 +99,7 @@ proc read[T](pt: SharedPtr[T], reader: proc(t: T));
 proc write[T](pt: SharedPtr[T], writer: proc(t: var T));
 
 # obtain the weak pointer.
-proc weak[T](src: SharedPtr{T}): WeakPtr[T];
+proc weak[T](src: SharedPtr[T]): WeakPtr[T];
 ```
 
 ## WeakPtr
