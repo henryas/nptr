@@ -30,11 +30,11 @@ type
     item: ptr T
     destroy: proc(t: var T)
   SharedPtr*[T] = object
-    ## SharedPtr manages the lifetime of an object. It allows multiple ownership of the object. It can be copied and passed across threads. It acts as a read-write mutex to the underlying data and therefore carries a higher cost than UniquePtr.
+    ## SharedPtr manages the lifetime of an object. It allows multiple ownership of the object. It can be copied and passed across threads. In a multi-threading environment, it also performs as a read-write mutex to the underlying data where it allows multiple readers and a single writer at any given time.
     content: ptr SharedPtrInternal[T]
     destroy: proc(t: var T)
   WeakPtr*[T] = object
-    ## WeakPtr is a non-owning reference to the object pointed to by SharedPtr. WeakPtr can be passed across threads. It is obtained from SharedPtr, and must be converted back into SharedPtr in order to access the object it points to.
+    ## WeakPtr is a non-owning reference to the object pointed to by SharedPtr. WeakPtr can be passed across threads. It is obtained from SharedPtr, and must be converted back into SharedPtr in order to access the object.
     content: ptr SharedPtrInternal[T]
     destroy: proc(t: var T)
 
@@ -85,7 +85,7 @@ proc move*[T](src: var UniquePtr[T]): UniquePtr[T] =
   src.destroy = nil
 
 proc initSharedPtr*[T](destructor: proc(t: var T)): SharedPtr[T] =
-  ## initialize the shared ptr. Upon clean up, the object will be destroyed using the given destructor function.
+  ## initialize the shared ptr. Upon clean up, the object will be destroyed using the given destructor.
   when compileOption("threads"):
     result.content = cast[typeof(result.content)](allocShared0(sizeof(SharedPtrInternal[T])))
   else:
@@ -203,22 +203,3 @@ proc promote*[T](p: WeakPtr[T]): Option[SharedPtr[T]] =
     temp.content = p.content
     temp.destroy = p.destroy
   return some(temp)
-
-template autoAlloc*[T](): ptr T =
-  ## autoAlloc allocates memory for the given object.
-  when compileOption("threads"):
-    cast[ptr T](allocShared(sizeof(T)))
-  else:
-    cast[ptr T](alloc(sizeof(T)))
-
-template autoDealloc*[T](p: ptr T) =
-  ## autoDealloc deallocates memory that has been allocated with autoDealloc.
-  if p == nil:
-    return
-  when compileOption("threads"):
-    deallocShared(p)
-  else:
-    dealloc(p)
-  p = nil
-
-
