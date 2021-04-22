@@ -52,3 +52,19 @@ block destructorUniquePtrTest:
     spawn work(move p)
     sync()
   doAssert isDestructorCalled
+
+block uniquePtrClosure:
+  type closure = object
+    fn: proc()
+
+  var isCalled: bool
+  var pt = initUniquePtr[closure]()
+  pt.write(proc(c: var closure) = c.fn = proc() = isCalled = true)
+
+  proc call(pt: UniquePtr[closure]) =
+    pt.read(proc(c: closure) = c.fn())
+
+  spawn call(move pt)
+  sync()
+
+  doAssert isCalled

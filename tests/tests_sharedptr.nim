@@ -15,17 +15,11 @@ block destructorSharedPtrTest:
 
 block sharedPtrClosure:
   type closure = object
-    fn: ptr proc()
+    fn: proc()
   var isCalled: bool
-  var pt = initSharedPtr[closure](proc(c: var closure) =
-    autoDealloc(c.fn)
-  )
+  var pt = initSharedPtr[closure]()
   pt.write(proc(c: var closure) =
-    c.fn = autoAlloc[proc()]()
-    c.fn[] = proc() = isCalled = false
+    c.fn = proc() = isCalled = true
   )
-  pt.write(proc(c: var closure) =
-    c.fn[] = proc() = isCalled = true
-  )
-  pt.read(proc(c: closure) = c.fn[]())
+  pt.read(proc(c: closure) = c.fn())
   doAssert isCalled

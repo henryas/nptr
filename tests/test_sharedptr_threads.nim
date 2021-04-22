@@ -54,3 +54,18 @@ block destructorSharedPtrTest:
     sync()
   doAssert isDestructorCalled
 
+block sharedPtrClosure:
+  type closure = object
+    fn: proc()
+
+  var isCalled: bool
+  var pt = initSharedPtr[closure]()
+  pt.write(proc(c: var closure) = c.fn = proc() = isCalled = true)
+
+  proc call(pt: SharedPtr[closure]) =
+    pt.read(proc(c: closure) = c.fn())
+
+  spawn call(pt)
+  sync()
+
+  doAssert isCalled

@@ -35,16 +35,15 @@ type
     destroy: proc(t: var T)
   WeakPtr*[T] = object
     ## WeakPtr is a non-owning reference to the object pointed to by SharedPtr. WeakPtr can be passed across threads. It is obtained from SharedPtr, and must be converted back into SharedPtr in order to access the object it points to.
-    content: ptr ptr SharedPtrInternal[T]
+    content: ptr SharedPtrInternal[T]
     destroy: proc(t: var T)
 
 proc initUniquePtr*[T](destructor: proc(t: var T)): UniquePtr[T] =
   ## create a unique ptr with the given destructor.
   when compileOption("threads"):
-    result.item = cast[ptr T](allocShared(sizeof(T)))
+    result.item = cast[ptr T](allocShared0(sizeof(T)))
   else:
-    result.item = cast[ptr T](alloc(sizeof(T)))
-  result.item[] = default(T)
+    result.item = cast[ptr T](alloc0(sizeof(T)))
   result.destroy = destructor
 
 proc initUniquePtr*[T](): UniquePtr[T] =
@@ -88,10 +87,9 @@ proc move*[T](src: var UniquePtr[T]): UniquePtr[T] =
 proc initSharedPtr*[T](destructor: proc(t: var T)): SharedPtr[T] =
   ## initialize the shared ptr. Upon clean up, the object will be destroyed using the given destructor function.
   when compileOption("threads"):
-    result.content = cast[typeof(result.content)](allocShared(sizeof(SharedPtrInternal[T])))
+    result.content = cast[typeof(result.content)](allocShared0(sizeof(SharedPtrInternal[T])))
   else:
-    result.content = cast[typeof(result.content)](alloc(sizeof(SharedPtrInternal[T])))
-  result.content[].item = default(T)
+    result.content = cast[typeof(result.content)](alloc0(sizeof(SharedPtrInternal[T])))
   result.content[].count = 1
   result.destroy = destructor
   when compileOption("threads"):
@@ -179,26 +177,30 @@ proc read*[T](p: SharedPtr[T], reader: proc(i: T)) {.gcsafe.} =
 
 proc weak*[T](p: SharedPtr[T]): WeakPtr[T] =
   ## get the weak ptr
-  result.content = unsafeAddr p.content
+  result.content = p.content
   result.destroy = p.destroy
 
 proc `=destroy`[T](p: var WeakPtr[T]) =
   p.content = nil
   p.destroy = nil
 
-proc promote*[T](p: var WeakPtr[T]): Option[SharedPtr[T]] =
+proc promote*[T](p: WeakPtr[T]): Option[SharedPtr[T]] =
   ## attempt to promote the weak ptr into shared ptr.
-  if p.content == nil or p.content == p.content[]:
+  if p.content == nil:
     return none[SharedPtr[T]]()
   var temp: SharedPtr[T]
   when compileOption("threads"):
     withLock p.content[].countLock:
+      if p.content[].count == 0:
+        return none[SharedPtr[T]]()
       p.content[].count += 1
-      temp.content = p.content[]
+      temp.content = p.content
       temp.destroy = p.destroy
   else:
+    if p.content[].count == 0:
+      return none[SharedPtr[T]]()
     p.content[].count += 1
-    temp.content = p.content[]
+    temp.content = p.content
     temp.destroy = p.destroy
   return some(temp)
 

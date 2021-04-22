@@ -30,17 +30,9 @@ block destructorUniquePtrTest:
 
 block uniquePtrClosure:
   type closure = object
-    fn: ptr proc()
+    fn: proc()
   var isCalled: bool
-  var pt = initUniquePtr[closure](proc(c: var closure) =
-    autoDealloc(c.fn)
-  )
-  pt.write(proc(c: var closure) =
-    c.fn = autoAlloc[proc()]()
-    c.fn[] = proc() = isCalled = false
-  )
-  pt.write(proc(c: var closure) =
-    c.fn[] = proc() = isCalled = true
-  )
-  pt.read(proc(c: closure) = c.fn[]())
+  var pt = initUniquePtr[closure]()
+  pt.write(proc(c: var closure) = c.fn = proc() = isCalled = true)
+  pt.read(proc(c: closure) = c.fn())
   doAssert isCalled
