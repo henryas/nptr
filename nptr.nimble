@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.1.7"
+version       = "0.1.8"
 author        = "Henry Adi Sumarto"
 description   = "Nim lang smart pointers"
 license       = "MIT"
@@ -9,4 +9,4 @@ srcDir        = "src"
 
 # Dependencies
 
-requires "nim >= 1.4.6"
+requires "nim >= 1.4.4"
