@@ -1,8 +1,10 @@
 ## Module nptr implements smart pointers. They are safe to use across threads.
 
 import
-  locks,
   options
+
+when compileOption("threads"):
+  import locks
 
 export
   options
@@ -93,7 +95,6 @@ proc initSharedPtr*[T](destructor: proc(t: var T)): SharedPtr[T] =
   result.content[].count = 1
   result.destroy = destructor
   when compileOption("threads"):
-    result.content[].readers = 0
     initLock(result.content[].countLock)
     initLock(result.content[].resourceLock)
     initLock(result.content[].readersLock)
@@ -190,6 +191,8 @@ proc promote*[T](p: WeakPtr[T]): Option[SharedPtr[T]] =
     return none[SharedPtr[T]]()
   var temp: SharedPtr[T]
   when compileOption("threads"):
+    if p.content[].countLock == default(Lock):
+      return none[SharedPtr[T]]()
     withLock p.content[].countLock:
       if p.content[].count == 0:
         return none[SharedPtr[T]]()

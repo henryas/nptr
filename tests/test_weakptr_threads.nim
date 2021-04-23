@@ -22,3 +22,14 @@ block weakPtr1:
   sync()
 
   sp.read(proc(i: int) = doAssert i == 5)
+
+block weakPtr2:
+  proc getWeakPtr(outPtr: ptr WeakPtr[int]) =
+    var p = initSharedPtr[int]()
+    p.write(proc(i: var int) = i=8)
+    outPtr[] = p.weak()
+
+  var wp: WeakPtr[int]
+  spawn getWeakPtr(addr wp)
+  sync()
+  doAssert wp.promote().isNone()
