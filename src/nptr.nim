@@ -13,6 +13,7 @@ when compileOption("threads"):
   type SharedPtrInternal[T] = tuple[
     item: T,
     count: uint8,
+    weakCount: uint8,
     readers: uint8,
     countLock: Lock,
     resourceLock: Lock,
@@ -24,6 +25,7 @@ else:
   type SharedPtrInternal[T] = tuple[
     item: T,
     count: uint8,
+    weakCount: uint8,
   ]
 
 type
@@ -60,8 +62,6 @@ proc `=destroy`[T](p: var UniquePtr[T]) =
     deallocShared(p.item)
   else:
     dealloc(p.item)
-  p.item = nil
-  p.destroy = nil
 
 proc `=copy`[T](dest: var UniquePtr[T], src: UniquePtr[T]) =
   if dest.item == src.item:
@@ -107,18 +107,21 @@ proc initSharedPtr*[T](): SharedPtr[T] =
 proc `=destroy`[T](p: var SharedPtr[T]) =
   if p.content == nil:
     return
-  var lastCopy: bool
 
+  var canDestroy, canDealloc: bool
   when compileOption("threads"):
     withLock p.content[].countLock:
       p.content[].count -= 1
-      lastCopy = p.content[].count == 0
+      canDestroy = p.content[].count == 0
+      canDealloc = p.content[].weakCount == 0 and canDestroy
   else:
     p.content[].count -= 1
-    lastCopy = p.content[].count == 0
+    canDestroy = p.content[].count == 0
+    canDealloc = p.content[].weakCount == 0 and canDestroy
 
-  if lastCopy:
+  if canDestroy:
     p.destroy(p.content[].item)
+  if canDealloc:
     when compileOption("threads"):
       deinitLock(p.content[].countLock)
       deinitLock(p.content[].resourceLock)
@@ -127,8 +130,6 @@ proc `=destroy`[T](p: var SharedPtr[T]) =
       deallocShared(p.content)
     else:
       dealloc(p.content)
-    p.content = nil
-    p.destroy = nil
 
 proc `=copy`[T](dest: var SharedPtr[T], src: SharedPtr[T]) =
   if dest.content == src.content:
@@ -178,12 +179,49 @@ proc read*[T](p: SharedPtr[T], reader: proc(i: T)) {.gcsafe.} =
 
 proc weak*[T](p: SharedPtr[T]): WeakPtr[T] =
   ## get the weak ptr
+  when compileOption("threads"):
+    withLock p.content[].countLock:
+      p.content[].weakCount += 1
+  else:
+    p.content[].weakCount += 1
   result.content = p.content
   result.destroy = p.destroy
 
 proc `=destroy`[T](p: var WeakPtr[T]) =
-  p.content = nil
-  p.destroy = nil
+  if p.content == nil:
+    return
+  var canDealloc: bool
+  when compileOption("threads"):
+    withLock p.content[].countLock:
+      p.content[].weakCount -= 1
+      canDealloc = p.content[].weakCount == 0 and p.content[].count == 0
+  else:
+    p.content[].weakCount -= 1
+    canDealloc = p.content[].weakCount == 0 and p.content[].count == 0
+  if canDealloc:
+    when compileOption("threads"):
+      deinitLock(p.content[].countLock)
+      deinitLock(p.content[].resourceLock)
+      deinitLock(p.content[].readersLock)
+      deinitLock(p.content[].serviceLock)
+      deallocShared(p.content)
+    else:
+      dealloc(p.content)
+
+proc `=copy`[T](dest: var WeakPtr[T], src: WeakPtr[T]) =
+  if dest.content == src.content:
+    return
+  `=destroy`(dest)
+  wasMoved(dest)
+  if src.content == nil:
+    return
+  when compileOption("threads"):
+    withLock src.content[].countLock:
+      src.content[].weakCount += 1
+  else:
+    src.content[].weakCount += 1
+  dest.content = src.content
+  dest.destroy = src.destroy
 
 proc promote*[T](p: WeakPtr[T]): Option[SharedPtr[T]] =
   ## attempt to promote the weak ptr into shared ptr.
@@ -191,18 +229,14 @@ proc promote*[T](p: WeakPtr[T]): Option[SharedPtr[T]] =
     return none[SharedPtr[T]]()
   var temp: SharedPtr[T]
   when compileOption("threads"):
-    if p.content[].countLock == default(Lock):
-      return none[SharedPtr[T]]()
     withLock p.content[].countLock:
       if p.content[].count == 0:
         return none[SharedPtr[T]]()
       p.content[].count += 1
-      temp.content = p.content
-      temp.destroy = p.destroy
   else:
     if p.content[].count == 0:
       return none[SharedPtr[T]]()
     p.content[].count += 1
-    temp.content = p.content
-    temp.destroy = p.destroy
+  temp.content = p.content
+  temp.destroy = p.destroy
   return some(temp)
