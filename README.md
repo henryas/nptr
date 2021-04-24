@@ -44,7 +44,7 @@ proc work(cp: UniquePtr[string]) =
     doAssert s == "Hello World"
   )
 
-spawn work(move pt) # explicit move is required when passing across threads
+spawn work(pt)
 # pt has been moved. any attempt to access pt will raise AccessViolationDefect exception.
 sync()
 ```
@@ -62,9 +62,6 @@ proc read[T](pt: UniquePtr[T], reader: proc(t: T));
 
 # write / modify the pointer's content
 proc write[T](pt: UniquePtr[T], writer: proc(t: var T));
-
-# explicitly move the pointer
-proc move[T](src: var Unique[T]): UniquePtr[T];
 ```
 
 ## SharedPtr

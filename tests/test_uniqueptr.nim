@@ -36,3 +36,23 @@ block uniquePtrClosure:
   pt.write(proc(c: var closure) = c.fn = proc() = isCalled = true)
   pt.read(proc(c: closure) = c.fn())
   doAssert isCalled
+
+block uniquePtrDestructor:
+  var callCount: int
+  block:
+    var p1 = initUniquePtr[int](proc(i: var int) = callCount += 1)
+    p1.write(proc(i:var int) = i=8)
+    var p2 = p1
+    var p3 = p2
+    p3.read(proc(i: int) = doAssert i==8)
+  doAssert callCount == 1
+
+block uniquePtrCopy:
+  var p1 = initUniquePtr[int]()
+  p1.write(proc(i: var int) = i=8)
+  var p2 = p1
+  var p3 = p2
+  p3.read(proc(i: int) = doAssert i==8)
+  var p4 = p1
+  expectError:
+    p4.read(proc(i: int) = doAssert i==0)

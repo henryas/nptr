@@ -10,28 +10,42 @@ export
   options
 
 when compileOption("threads"):
-  type SharedPtrInternal[T] = tuple[
-    item: T,
-    count: uint8,
-    weakCount: uint8,
-    readers: uint8,
-    countLock: Lock,
-    resourceLock: Lock,
-    readersLock: Lock,
-    serviceLock: Lock,
-  ]
+  type
+    UniquePtrInternal[T] = tuple [
+      item: T,
+      id: uint8,
+      lock: Lock,
+      count: uint8,
+    ]
+    SharedPtrInternal[T] = tuple [
+      item: T,
+      count: uint8,
+      weakCount: uint8,
+      readers: uint8,
+      countLock: Lock,
+      resourceLock: Lock,
+      readersLock: Lock,
+      serviceLock: Lock,
+    ]
 else:
   # lock is not needed in a non-concurrent situation.
-  type SharedPtrInternal[T] = tuple[
-    item: T,
-    count: uint8,
-    weakCount: uint8,
-  ]
+  type
+    UniquePtrInternal[T] = tuple [
+      item: T,
+      id: uint8,
+      count: uint8,
+    ]
+    SharedPtrInternal[T] = tuple [
+      item: T,
+      count: uint8,
+      weakCount: uint8,
+    ]
 
 type
   UniquePtr*[T] = object
     ## UniquePtr manages the lifetime of an object. It retains a single ownership of the object and cannot be copied. It can be passed across threads.
-    item: ptr T
+    id: uint8
+    item: ptr UniquePtrInternal[T]
     destroy: proc(t: var T)
   SharedPtr*[T] = object
     ## SharedPtr manages the lifetime of an object. It allows multiple ownership of the object. It can be copied and passed across threads. In a multi-threading environment, it also performs as a read-write mutex to the underlying data where it allows multiple readers and a single writer at any given time.
@@ -45,9 +59,12 @@ type
 proc initUniquePtr*[T](destructor: proc(t: var T)): UniquePtr[T] =
   ## create a unique ptr with the given destructor.
   when compileOption("threads"):
-    result.item = cast[ptr T](allocShared0(sizeof(T)))
+    result.item = cast[ptr UniquePtrInternal[T]](allocShared0(sizeof(UniquePtrInternal[T])))
+    result.item[].count = 1
+    initLock(result.item[].lock)
   else:
-    result.item = cast[ptr T](alloc0(sizeof(T)))
+    result.item = cast[ptr UniquePtrInternal[T]](alloc0(sizeof(UniquePtrInternal[T])))
+    result.item[].count = 1
   result.destroy = destructor
 
 proc initUniquePtr*[T](): UniquePtr[T] =
@@ -57,34 +74,72 @@ proc initUniquePtr*[T](): UniquePtr[T] =
 proc `=destroy`[T](p: var UniquePtr[T]) =
   if p.item == nil:
     return
-  p.destroy(p.item[])
+
+  var canDestroy, canDealloc: bool
   when compileOption("threads"):
-    deallocShared(p.item)
+    withLock p.item[].lock:
+      p.item[].count -= 1
+      canDestroy = p.item[].id == p.id
+      canDealloc = p.item[].count == 0
   else:
-    dealloc(p.item)
+    p.item[].count -= 1
+    canDestroy = p.item[].id == p.id
+    canDealloc = p.item[].count == 0
+
+  if canDestroy:
+    p.destroy(p.item[].item)
+  if canDealloc:
+    when compileOption("threads"):
+      deinitLock(p.item[].lock)
+      deallocShared(p.item)
+    else:
+      dealloc(p.item)
 
 proc `=copy`[T](dest: var UniquePtr[T], src: UniquePtr[T]) =
   if dest.item == src.item:
     return
-  raise newException(ObjectAssignmentDefect, "unique ptr must not be copied")
+  `=destroy`(dest)
+  wasMoved(dest)
+  if src.item == nil:
+    return
+  when compileOption("threads"):
+    withLock src.item[].lock:
+      if src.item[].id != src.id:
+        return
+      src.item[].id += 1
+      src.item[].count += 1
+  else:
+    if src.item[].id != src.id:
+      return
+    src.item[].id += 1
+    src.item[].count += 1
+  dest.id = src.item[].id
+  dest.item = src.item
+  dest.destroy = src.destroy
 
 proc read*[T](p: UniquePtr[T], fn: proc(i: T)) {.gcsafe.} =
   if p.item == nil:
     raise newException(AccessViolationDefect, "unique ptr is no longer available")
-  fn(p.item[])
+  when compileOption("threads"):
+    withLock p.item[].lock:
+      if p.item[].id != p.id:
+        raise newException(AccessViolationDefect, "unique ptr is no longer available")
+  else:
+    if p.item[].id != p.id:
+      raise newException(AccessViolationDefect, "unique ptr is no longer available")
+  fn(p.item[].item)
 
 proc write*[T](p: UniquePtr[T], fn: proc(i: var T)) {.gcsafe.} =
   if p.item == nil:
     raise newException(AccessViolationDefect, "unique ptr is no longer available")
-  fn(p.item[])
-
-proc move*[T](src: var UniquePtr[T]): UniquePtr[T] =
-  if src.item == nil:
-    return
-  result.item = src.item
-  result.destroy = src.destroy
-  src.item = nil
-  src.destroy = nil
+  when compileOption("threads"):
+    withLock p.item[].lock:
+      if p.item[].id != p.id:
+        raise newException(AccessViolationDefect, "unique ptr is no longer available")
+  else:
+    if p.item[].id != p.id:
+      raise newException(AccessViolationDefect, "unique ptr is no longer available")
+  fn(p.item[].item)
 
 proc initSharedPtr*[T](destructor: proc(t: var T)): SharedPtr[T] =
   ## initialize the shared ptr. Upon clean up, the object will be destroyed using the given destructor.

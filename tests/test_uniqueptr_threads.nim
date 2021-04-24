@@ -14,7 +14,7 @@ block uniquePtrTest1:
       s.add(" World")
       doAssert s == "Hello World"
     )
-  spawn work(move pt) # explicit move is required when passing across threads
+  spawn work(pt) # explicit move is required when passing across threads
   sync()
 
 block uniquePtrTest2:
@@ -26,7 +26,7 @@ block uniquePtrTest2:
       s = 10
       doAssert s == 10
     )
-  spawn work(move pt) # explicit move is required when passing across threads
+  spawn work(pt) # explicit move is required when passing across threads
   sync()
 
 block uniquePtrTest3:
@@ -49,7 +49,7 @@ block destructorUniquePtrTest:
   block:
     proc work(p: UniquePtr[int]) = discard
     var p = initUniquePtr[int](proc(i: var int) = isDestructorCalled = true)
-    spawn work(move p)
+    spawn work(p)
     sync()
   doAssert isDestructorCalled
 
@@ -64,7 +64,7 @@ block uniquePtrClosure:
   proc call(pt: UniquePtr[closure]) =
     pt.read(proc(c: closure) = c.fn())
 
-  spawn call(move pt)
+  spawn call(pt)
   sync()
 
   doAssert isCalled
