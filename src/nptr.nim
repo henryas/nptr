@@ -12,41 +12,41 @@ export
 when compileOption("threads"):
   type
     UniquePtrInternal[T] = tuple [
-      item: T,
-      id: uint8,
       lock: Lock,
+      id: uint8,
       count: uint8,
+      item: T,
     ]
     SharedPtrInternal[T] = tuple [
-      item: T,
-      count: uint8,
-      weakCount: uint8,
-      readers: uint8,
       countLock: Lock,
       resourceLock: Lock,
       readersLock: Lock,
       serviceLock: Lock,
+      count: uint8,
+      weakCount: uint8,
+      readers: uint8,
+      item: T,
     ]
 else:
   # lock is not needed in a non-concurrent situation.
   type
     UniquePtrInternal[T] = tuple [
-      item: T,
       id: uint8,
       count: uint8,
+      item: T,
     ]
     SharedPtrInternal[T] = tuple [
-      item: T,
       count: uint8,
       weakCount: uint8,
+      item: T,
     ]
 
 type
   UniquePtr*[T] = object
     ## UniquePtr manages the lifetime of an object. It retains a single ownership of the object and cannot be copied. It can be passed across threads.
-    id: uint8
     item: ptr UniquePtrInternal[T]
     destroy: proc(t: var T)
+    id: uint8
   SharedPtr*[T] = object
     ## SharedPtr manages the lifetime of an object. It allows multiple ownership of the object. It can be copied and passed across threads. In a multi-threading environment, it also performs as a read-write mutex to the underlying data where it allows multiple readers and a single writer at any given time.
     content: ptr SharedPtrInternal[T]
