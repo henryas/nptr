@@ -18,6 +18,17 @@ block sharedPtr1:
 
   pt.read(proc(i: int) = doAssert i==5)
 
+block sharedPtr1a:
+  var pt = initSharedPtr[int]()
+  proc work(cp: SharedPtr[int]) =
+    cp.writeLock i:
+      i[] += 1
+  for _ in 0..4:
+    spawn(work(pt))
+  sync()
+
+  doAssert pt.readLock()[] == 5
+
 block sharedPtr2:
   var pt = initSharedPtr[string]()
   proc work(cp: SharedPtr[string]) =
@@ -69,3 +80,11 @@ block sharedPtrClosure:
   sync()
 
   doAssert isCalled
+
+block sharedPtrAccess:
+  var pt = initSharedPtr[string]()
+  proc setText(p: SharedPtr[string]) =
+    p.writeLock()[] = "Hello World"
+  spawn setText(pt)
+  sync()
+  doAssert pt.readLock()[] == "Hello World"

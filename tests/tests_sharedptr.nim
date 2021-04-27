@@ -23,3 +23,11 @@ block sharedPtrClosure:
   )
   pt.read(proc(c: closure) = c.fn())
   doAssert isCalled
+
+block sharedPtrAccess:
+  var p = initSharedPtr[string]()
+  p.writeLock v:
+    v[] = "Hello"
+  p.writeLock v:
+    v[].add(" World")
+  doAssert p.readLock()[] == "Hello World"
